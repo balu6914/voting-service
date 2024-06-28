@@ -15,6 +15,7 @@ import (
 
 var db *dynamodb.DynamoDB
 
+// Initialize the DynamoDB session
 func init() {
 	sess, err := session.NewSession(&aws.Config{
 		Region:      aws.String("us-west-2"),
@@ -28,62 +29,61 @@ func init() {
 	db = dynamodb.New(sess)
 }
 
+// Create DynamoDB tables for Users and Votes
 func createTables() {
-	input := &dynamodb.CreateTableInput{
-		TableName: aws.String("Users"),
-		KeySchema: []*dynamodb.KeySchemaElement{
-			{
-				AttributeName: aws.String("ID"),
-				KeyType:       aws.String("HASH"),
+	createTableInput := []*dynamodb.CreateTableInput{
+		{
+			TableName: aws.String("Users"),
+			KeySchema: []*dynamodb.KeySchemaElement{
+				{
+					AttributeName: aws.String("ID"),
+					KeyType:       aws.String("HASH"),
+				},
+			},
+			AttributeDefinitions: []*dynamodb.AttributeDefinition{
+				{
+					AttributeName: aws.String("ID"),
+					AttributeType: aws.String("S"),
+				},
+			},
+			ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
 			},
 		},
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String("ID"),
-				AttributeType: aws.String("S"),
+		{
+			TableName: aws.String("Votes"),
+			KeySchema: []*dynamodb.KeySchemaElement{
+				{
+					AttributeName: aws.String("UserID"),
+					KeyType:       aws.String("HASH"),
+				},
 			},
-		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
+			AttributeDefinitions: []*dynamodb.AttributeDefinition{
+				{
+					AttributeName: aws.String("UserID"),
+					AttributeType: aws.String("S"),
+				},
+			},
+			ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
+			},
 		},
 	}
 
-	_, err := db.CreateTable(input)
-	if err != nil {
-		log.Fatalf("Got error calling CreateTable: %s", err)
-	}
-
-	input = &dynamodb.CreateTableInput{
-		TableName: aws.String("Votes"),
-		KeySchema: []*dynamodb.KeySchemaElement{
-			{
-				AttributeName: aws.String("UserID"),
-				KeyType:       aws.String("HASH"),
-			},
-		},
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String("UserID"),
-				AttributeType: aws.String("S"),
-			},
-		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	}
-
-	_, err = db.CreateTable(input)
-	if err != nil {
-		log.Fatalf("Got error calling CreateTable: %s", err)
+	for _, input := range createTableInput {
+		_, err := db.CreateTable(input)
+		if err != nil {
+			log.Fatalf("Got error calling CreateTable: %s", err)
+		}
 	}
 }
 
+// HandleVote processes voting requests
 func handleVote(w http.ResponseWriter, r *http.Request) {
 	var vote Vote
-	err := json.NewDecoder(r.Body).Decode(&vote)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&vote); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -100,8 +100,7 @@ func handleVote(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	_, err = db.PutItem(input)
-	if err != nil {
+	if _, err := db.PutItem(input); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -110,6 +109,7 @@ func handleVote(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Vote recorded"))
 }
 
+// HandleResults retrieves and returns voting results
 func handleResults(w http.ResponseWriter, r *http.Request) {
 	input := &dynamodb.ScanInput{
 		TableName: aws.String("Votes"),
@@ -136,6 +136,7 @@ func handleResults(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
+// CalculateResults tallies the votes
 func calculateResults(votes []Vote) map[string]int {
 	results := make(map[string]int)
 	for _, vote := range votes {
